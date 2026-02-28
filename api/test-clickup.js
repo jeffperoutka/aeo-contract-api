@@ -1,63 +1,64 @@
 const https = require("https");
 
-module.exports = (req, res) => {
+function clickupGet(token, path) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: "api.clickup.com",
+      port: 443,
+      path: "/api/v2" + path,
+      method: "GET",
+      headers: {
+        "Authorization": token,
+        "Content-Type": "application/json"
+      }
+    };
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => data += chunk);
+      res.on("end", () => {
+        try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
+        catch(e) { resolve({ status: res.statusCode, raw: data.substring(0, 500) }); }
+      });
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+module.exports = async (req, res) => {
   const token = process.env.CLICKUP_API_TOKEN;
+  const listId = process.env.CLICKUP_LIST_ID || "901307458702";
 
   if (!token) {
-    return res.status(200).json({
-      error: "CLICKUP_API_TOKEN not set",
-      tokenExists: false
-    });
+    return res.status(200).json({ error: "CLICKUP_API_TOKEN not set" });
   }
 
-  // Show token info (safe prefix only)
   const tokenInfo = {
     prefix: token.substring(0, 8) + "...",
     length: token.length,
-    hasWhitespace: token !== token.trim(),
-    hasNewlines: token.includes("\n") || token.includes("\r"),
     startsWithPk: token.startsWith("pk_")
   };
 
-  // Test the token against ClickUp API - just get authorized user
-  const options = {
-    hostname: "api.clickup.com",
-    port: 443,
-    path: "/api/v2/user",
-    method: "GET",
-    headers: {
-      "Authorization": token,
-      "Content-Type": "application/json"
-    }
-  };
+  try {
+    // Test 1: Get user (auth check)
+    const userResult = await clickupGet(token, "/user");
 
-  const apiReq = https.request(options, (apiRes) => {
-    let data = "";
-    apiRes.on("data", (chunk) => data += chunk);
-    apiRes.on("end", () => {
-      try {
-        const parsed = JSON.parse(data);
-        res.status(200).json({
-          tokenInfo: tokenInfo,
-          httpStatus: apiRes.statusCode,
-          clickupResponse: parsed
-        });
-      } catch(e) {
-        res.status(200).json({
-          tokenInfo: tokenInfo,
-          httpStatus: apiRes.statusCode,
-          rawResponse: data.substring(0, 500)
-        });
+    // Test 2: Get list info (list access check)
+    const listResult = await clickupGet(token, "/list/" + listId);
+
+    // Test 3: Get teams/workspaces
+    const teamsResult = await clickupGet(token, "/team");
+
+    res.status(200).json({
+      tokenInfo,
+      listId,
+      tests: {
+        user: userResult,
+        list: listResult,
+        teams: teamsResult
       }
     });
-  });
-
-  apiReq.on("error", (err) => {
-    res.status(200).json({
-      tokenInfo: tokenInfo,
-      error: err.message
-    });
-  });
-
-  apiReq.end();
+  } catch(err) {
+    res.status(200).json({ tokenInfo, error: err.message });
+  }
 };
