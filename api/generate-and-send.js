@@ -815,27 +815,29 @@ async function createStripeInvoice(clientEmail, clientName, clientCompany, amoun
     );
     console.log("STRIPE: Price created: " + price.id);
 
-    // Create subscription with ACH payment
+    // Create subscription with ACH payment (send_invoice = we email them)
     const subscription = await stripeRequest("POST", "/subscriptions",
       "customer=" + customer.id +
       "&items[0][price]=" + price.id +
-      "&payment_behavior=default_incomplete" +
       "&payment_settings[payment_method_types][0]=us_bank_account" +
       "&collection_method=send_invoice" +
       "&days_until_due=30"
     );
     console.log("STRIPE: Subscription created: " + subscription.id + " status: " + subscription.status);
 
-    // Get the latest invoice from the subscription
+    // Get the latest invoice from the subscription and finalize it
     const latestInvoiceId = subscription.latest_invoice;
+    console.log("STRIPE: latest_invoice=" + latestInvoiceId);
     if (latestInvoiceId) {
-      const invoice = await stripeRequest("GET", "/invoices/" + latestInvoiceId, "");
+      // Finalize the draft invoice so it gets a hosted_invoice_url
+      const finalized = await stripeRequest("POST", "/invoices/" + latestInvoiceId + "/finalize", "");
+      console.log("STRIPE: Subscription invoice finalized, status: " + finalized.status + " url: " + (finalized.hosted_invoice_url ? "yes" : "no"));
       return {
         customerId: customer.id,
         subscriptionId: subscription.id,
         invoiceId: latestInvoiceId,
-        invoiceUrl: invoice.hosted_invoice_url,
-        invoicePdf: invoice.invoice_pdf,
+        invoiceUrl: finalized.hosted_invoice_url,
+        invoicePdf: finalized.invoice_pdf,
         recurring: true
       };
     }
