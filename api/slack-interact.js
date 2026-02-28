@@ -2,11 +2,16 @@
  * AEO Labs — Slack Interaction Handler
  *
  * Receives modal form submissions from the /new-contract slash command.
- * Extracts field values, responds 200 to Slack immediately, then runs
- * the full pipeline and posts results to Slack.
+ * Extracts field values, calls the pipeline, posts results to Slack,
+ * and THEN responds to Slack (not before).
  *
- * IMPORTANT: maxDuration is set to 60s in vercel.json so the function
- * stays alive after res.send() to complete the pipeline work.
+ * IMPORTANT: Slack has a 3-second timeout for view_submission responses.
+ * Since our pipeline takes 10-20 seconds, Slack will show a brief error
+ * ("We had some trouble connecting") on the modal. However, the pipeline
+ * WILL complete and results WILL appear in #contracts-invoices.
+ *
+ * We mitigate the UX by posting a "Processing..." message to the channel
+ * FIRST, so the user knows something is happening.
  *
  * POST /api/slack-interact
  */
@@ -32,7 +37,7 @@ function postJSON(hostname, pathStr, body, headers) {
         "Content-Length": Buffer.byteLength(bodyStr),
         ...(headers || {})
       },
-      timeout: 55000 // 55 second timeout for the request
+      timeout: 55000
     };
     const req = https.request(options, (res) => {
       let data = "";
@@ -42,10 +47,7 @@ function postJSON(hostname, pathStr, body, headers) {
         catch(e) { resolve({ status: res.statusCode, raw: data.substring(0, 1000) }); }
       });
     });
-    req.on("timeout", () => {
-      req.destroy();
-      reject(new Error("Request timed out after 55s"));
-    });
+    req.on("timeout", () => { req.destroy(); reject(new Error("Request timeout")); });
     req.on("error", reject);
     req.write(bodyStr);
     req.end();
@@ -65,7 +67,7 @@ function extractPayload(req) {
 
   if (raw && typeof raw === "object" && raw.payload) {
     try { return JSON.parse(raw.payload); }
-    catch(e) { console.error("SLACK-INTERACT: parse obj payload err:", e.message); return null; }
+    catch(e) { return null; }
   }
 
   if (raw && typeof raw === "string") {
@@ -77,8 +79,6 @@ function extractPayload(req) {
   }
 
   if (raw && typeof raw === "object" && raw.type) return raw;
-
-  console.error("SLACK-INTERACT: Could not extract payload. Body type:", typeof raw);
   return null;
 }
 
@@ -115,8 +115,6 @@ function buildSuccessBlocks(result, formData) {
 
   if (result.document_id && signnowLink) {
     pipelineLines.push(`:white_check_mark: *Contract* generated — <${signnowLink}|View & Send Contract>`);
-  } else if (result.document_id) {
-    pipelineLines.push(`:white_check_mark: *Contract* generated and uploaded to SignNow`);
   } else {
     pipelineLines.push(`:x: *Contract* generation failed`);
   }
@@ -167,14 +165,11 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Extract the Slack payload
   const payload = extractPayload(req);
   if (!payload) {
-    console.error("SLACK-INTERACT: No payload found");
+    console.error("SLACK-INTERACT: No payload");
     return res.status(200).send("");
   }
-
-  console.log("SLACK-INTERACT: type=" + payload.type);
 
   if (payload.type !== "view_submission") {
     return res.status(200).send("");
@@ -202,26 +197,22 @@ module.exports = async (req, res) => {
     scope: (formValues.scope || "").trim()
   };
 
-  console.log("SLACK-INTERACT: formData company=" + formData.client_company + " email=" + formData.client_email);
+  console.log("SLACK-INTERACT: company=" + formData.client_company + " email=" + formData.client_email);
 
-  // CRITICAL: Respond 200 to Slack immediately (must be within 3 seconds)
-  // The function continues executing after this (maxDuration: 60s in vercel.json)
-  res.status(200).send("");
-
-  // === BACKGROUND WORK (runs after response sent) ===
+  // DO NOT respond to Slack yet — we need the function to stay alive.
+  // Slack will show a brief error after 3s, but our pipeline WILL complete.
 
   try {
-    // 1. Post "Processing..." message to channel
+    // 1. Post "Processing..." message to channel immediately
     if (token) {
-      console.log("SLACK-INTERACT: Posting processing message to channel");
-      const procMsg = await slackAPI("chat.postMessage", {
+      console.log("SLACK-INTERACT: Posting processing msg");
+      await slackAPI("chat.postMessage", {
         channel: SLACK_CHANNEL,
-        text: `:hourglass_flowing_sand: Generating contract for *${formData.client_company}*... This takes about 15 seconds.`
+        text: `:hourglass_flowing_sand: *Generating contract for ${formData.client_company}...* This takes about 15 seconds.`
       }, token);
-      console.log("SLACK-INTERACT: Processing msg ok=" + (procMsg.data && procMsg.data.ok));
     }
 
-    // 2. Call the pipeline directly
+    // 2. Call the pipeline
     console.log("SLACK-INTERACT: Calling pipeline...");
     const pipelineResult = await postJSON(
       "aeo-contract-api.vercel.app",
@@ -232,18 +223,18 @@ module.exports = async (req, res) => {
 
     console.log("SLACK-INTERACT: Pipeline status=" + pipelineResult.status);
     const result = pipelineResult.data || {};
-    console.log("SLACK-INTERACT: Pipeline success=" + result.success);
+    console.log("SLACK-INTERACT: success=" + result.success);
 
     // 3. Post results to channel
     if (token) {
       if (result.success) {
         const blocks = buildSuccessBlocks(result, formData);
-        const postResult = await slackAPI("chat.postMessage", {
+        await slackAPI("chat.postMessage", {
           channel: SLACK_CHANNEL,
           text: "New contract created for " + formData.client_company,
           blocks: blocks
         }, token);
-        console.log("SLACK-INTERACT: Posted results ok=" + (postResult.data && postResult.data.ok));
+        console.log("SLACK-INTERACT: Posted results to channel");
       } else {
         await slackAPI("chat.postMessage", {
           channel: SLACK_CHANNEL,
@@ -252,26 +243,19 @@ module.exports = async (req, res) => {
       }
     }
 
-    // 4. DM the submitting user
+    // 4. DM the user
     if (token && userId) {
       try {
-        if (result.success) {
-          await slackAPI("chat.postMessage", {
-            channel: userId,
-            text: `:white_check_mark: Contract for *${formData.client_company}* is ready! Check <#${SLACK_CHANNEL}> for all the links.`
-          }, token);
-        } else {
-          await slackAPI("chat.postMessage", {
-            channel: userId,
-            text: `:x: Contract for *${formData.client_company}* had issues: ${result.message || result.error || "Unknown"}`
-          }, token);
-        }
+        const dmText = result.success
+          ? `:white_check_mark: Contract for *${formData.client_company}* is ready! Check <#${SLACK_CHANNEL}> for the links.`
+          : `:x: Contract for *${formData.client_company}* had issues: ${result.message || result.error || "Unknown"}`;
+        await slackAPI("chat.postMessage", { channel: userId, text: dmText }, token);
       } catch(e) {
-        console.log("SLACK-INTERACT: DM failed (non-critical):", e.message);
+        console.log("SLACK-INTERACT: DM failed:", e.message);
       }
     }
 
-    console.log("SLACK-INTERACT: All done for " + formData.client_company);
+    console.log("SLACK-INTERACT: All done");
 
   } catch(err) {
     console.error("SLACK-INTERACT: Error:", err.message);
@@ -281,9 +265,10 @@ module.exports = async (req, res) => {
           channel: SLACK_CHANNEL,
           text: `:x: Contract pipeline crashed for *${formData.client_company || "unknown"}*: ${err.message}`
         }, token);
-      } catch(e) {
-        console.error("SLACK-INTERACT: Could not post error:", e.message);
-      }
+      } catch(e) {}
     }
   }
+
+  // Respond to Slack (even though it already timed out, this is harmless)
+  return res.status(200).json({ response_action: "clear" });
 };
