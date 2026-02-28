@@ -684,7 +684,7 @@ function clickupRequest(method, path, body) {
 async function createClickUpTask(clientCompany, contractType, amount, clientEmail, signNowDocId, stripeInvoiceUrl) {
   // Post to the AEO Labs contracts list
   // List ID for contract tasks - using AEO Labs workspace
-  const listId = process.env.CLICKUP_LIST_ID || "901307458702";
+  const listId = process.env.CLICKUP_LIST_ID || "901815046625";
   console.log("CLICKUP: Creating task in list " + listId);
   const task = await clickupRequest("POST", "/list/" + listId + "/task", {
     name: "Contract: " + clientCompany + " - " + contractType.toUpperCase(),
