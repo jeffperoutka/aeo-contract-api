@@ -153,6 +153,60 @@ async function snAddFields(token, docId, pageCount) {
   return res;
 }
 
+async function snCreateSigningLink(token, docId, signerEmail) {
+  // Step 1: Get document to find the "Client" role unique_id
+  const docInfo = await snRequest("GET", `/document/${docId}`, {
+    Authorization: `Bearer ${token}`,
+  });
+  const roles = docInfo.body.roles || [];
+  const clientRole = roles.find(r => r.name === "Client");
+  if (!clientRole) throw new Error("No 'Client' role found on document. Roles: " + JSON.stringify(roles.map(r => r.name)));
+
+  // Step 2: Create embedded invite
+  const invitePayload = JSON.stringify({
+    invites: [{
+      email: signerEmail,
+      role_id: clientRole.unique_id,
+      order: 1,
+      auth_method: "none",
+    }],
+  });
+
+  const inviteRes = await snRequest("POST", `/v2/documents/${docId}/embedded-invites`, {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    "Content-Length": Buffer.byteLength(invitePayload),
+  }, invitePayload);
+
+  if (inviteRes.status >= 400 || !inviteRes.body || !inviteRes.body.data) {
+    throw new Error("Embedded invite creation failed: " + JSON.stringify(inviteRes.body));
+  }
+
+  // The response has { data: [ { id, email, role_id, status, ... } ] }
+  const inviteData = inviteRes.body.data;
+  const fieldInvite = Array.isArray(inviteData) ? inviteData[0] : inviteData;
+  const fieldInviteId = fieldInvite.id;
+  if (!fieldInviteId) throw new Error("No invite ID in response: " + JSON.stringify(inviteRes.body));
+
+  // Step 3: Generate signing link (expires in 45 days)
+  const linkPayload = JSON.stringify({
+    link_expiration: 45,
+    auth_method: "none",
+  });
+
+  const linkRes = await snRequest("POST", `/v2/documents/${docId}/embedded-invites/${fieldInviteId}/link`, {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    "Content-Length": Buffer.byteLength(linkPayload),
+  }, linkPayload);
+
+  if (linkRes.status >= 400 || !linkRes.body || !linkRes.body.data || !linkRes.body.data.link) {
+    throw new Error("Signing link generation failed: " + JSON.stringify(linkRes.body));
+  }
+
+  return linkRes.body.data.link;
+}
+
 async function snSendInvite(token, docId, signerEmail, signerName) {
   const payload = JSON.stringify({
     to: [{
@@ -887,13 +941,22 @@ module.exports = async function handler(req, res) {
     await snAddFields(token, docId, pageCount);
     console.log("Client signature fields added");
 
-    // Step 6: Send invite
+    // Step 6: Create signing link + optionally send email invite
+    let signingLink = null;
+    try {
+      signingLink = await snCreateSigningLink(token, docId, body.client_email);
+      console.log(`Signing link created: ${signingLink}`);
+    } catch (linkErr) {
+      console.error("Signing link error (falling back to webapp URL): " + linkErr.message);
+      signingLink = `https://app.signnow.com/webapp/document/${docId}`;
+    }
+
     if (DISABLE_SIGNNOW_INVITE) {
-      console.log("[SIGNNOW] Invite sending DISABLED");
+      console.log("[SIGNNOW] Email invite sending DISABLED (using signing link instead)");
     } else {
       await snSendInvite(token, docId, body.client_email, clientName);
+      console.log(`Email invite sent to ${clientName} (${body.client_email})`);
     }
-    console.log(`Invite sent to ${clientName} (${body.client_email})`);
 
 
     // ==================== STRIPE INVOICE ====================
@@ -935,6 +998,7 @@ module.exports = async function handler(req, res) {
       success: true,
       message: "Contract generated, uploaded to SignNow" + (stripeResult && !stripeResult.error ? ", Stripe invoice created" : "") + (clickupOk ? ", ClickUp task created" : ""),
       document_id: docId,
+      signing_link: signingLink,
       contract_type: contractType,
       client: clientName,
       company: body.client_company,

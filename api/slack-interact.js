@@ -107,14 +107,15 @@ function extractFormValues(viewState) {
 function buildSuccessBlocks(result, formData) {
   const amount = parseInt(String(formData.amount).replace(/[$,\s]/g, "")) || 0;
   const contractTypeLabel = formData.contract_type === "phase2" ? "Phase 2" : "Sprint 1";
-  const signnowLink = result.document_id
-    ? "https://app.signnow.com/webapp/document/" + result.document_id
-    : null;
+  // Use direct signing link if available, fall back to webapp URL
+  const signnowLink = result.signing_link
+    || (result.document_id ? "https://app.signnow.com/webapp/document/" + result.document_id : null);
 
   const pipelineLines = [];
 
   if (result.document_id && signnowLink) {
-    pipelineLines.push(`:white_check_mark: *Contract* generated — <${signnowLink}|View & Send Contract>`);
+    const linkLabel = result.signing_link ? "Send to Client for Signing" : "View & Send Contract";
+    pipelineLines.push(`:white_check_mark: *Contract* generated — <${signnowLink}|${linkLabel}>`);
   } else {
     pipelineLines.push(`:x: *Contract* generation failed`);
   }
