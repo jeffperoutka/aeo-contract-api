@@ -2,63 +2,25 @@
  * AEO Labs — Slack Interaction Handler
  *
  * Receives modal form submissions from the /new-contract slash command.
- * Extracts field values, calls the pipeline, posts results to Slack,
- * and THEN responds to Slack (not before).
+ * Extracts field values, fires off the pipeline to /api/slack-contract
+ * (a separate function invocation), and immediately responds to Slack
+ * to close the modal.
  *
- * IMPORTANT: Slack has a 3-second timeout for view_submission responses.
- * Since our pipeline takes 10-20 seconds, Slack will show a brief error
- * ("We had some trouble connecting") on the modal. However, the pipeline
- * WILL complete and results WILL appear in #contracts-invoices.
+ * ARCHITECTURE (Vercel Hobby plan safe):
+ * 1. Parse the Slack payload and extract form values
+ * 2. Fire HTTP request to /api/slack-contract (separate function)
+ * 3. Wait for the request to be sent over the wire
+ * 4. Respond to Slack with { response_action: "clear" } to close modal
  *
- * We mitigate the UX by posting a "Processing..." message to the channel
- * FIRST, so the user knows something is happening.
+ * The /api/slack-contract function runs independently and handles:
+ * - Calling /api/generate-and-send (the main pipeline)
+ * - Posting results to #contracts-invoices
  *
  * POST /api/slack-interact
  */
 
 const https = require("https");
 const querystring = require("querystring");
-
-// Slack channel for posting results
-const SLACK_CHANNEL = process.env.SLACK_CHANNEL_ID || "C0AHK69NL8K";
-
-// ==================== HTTP HELPERS ====================
-
-function postJSON(hostname, pathStr, body, headers) {
-  return new Promise((resolve, reject) => {
-    const bodyStr = JSON.stringify(body);
-    const options = {
-      hostname,
-      port: 443,
-      path: pathStr,
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Content-Length": Buffer.byteLength(bodyStr),
-        ...(headers || {})
-      },
-      timeout: 55000
-    };
-    const req = https.request(options, (res) => {
-      let data = "";
-      res.on("data", (chunk) => data += chunk);
-      res.on("end", () => {
-        try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
-        catch(e) { resolve({ status: res.statusCode, raw: data.substring(0, 1000) }); }
-      });
-    });
-    req.on("timeout", () => { req.destroy(); reject(new Error("Request timeout")); });
-    req.on("error", reject);
-    req.write(bodyStr);
-    req.end();
-  });
-}
-
-function slackAPI(method, body, token) {
-  return postJSON("slack.com", "/api/" + method, body, {
-    "Authorization": "Bearer " + token
-  });
-}
 
 // ==================== PAYLOAD PARSING ====================
 
@@ -102,54 +64,42 @@ function extractFormValues(viewState) {
   return result;
 }
 
-// ==================== SLACK MESSAGE BLOCKS ====================
+// ==================== FIRE-AND-FORGET HTTP REQUEST ====================
 
-function buildSuccessBlocks(result, formData) {
-  const amount = parseInt(String(formData.amount).replace(/[$,\s]/g, "")) || 0;
-  const contractTypeLabel = formData.contract_type === "phase2" ? "Phase 2" : "Sprint 1";
-  // Use direct signing link if available, fall back to webapp URL
-  const signnowLink = result.signing_link
-    || (result.document_id ? "https://app.signnow.com/webapp/document/" + result.document_id : null);
+/**
+ * Sends an HTTP request to /api/slack-contract and resolves
+ * as soon as the request body has been flushed to the network.
+ * We do NOT wait for the response — the target function runs independently.
+ */
+function fireAndForget(formData) {
+  return new Promise((resolve) => {
+    const bodyStr = JSON.stringify(formData);
+    const options = {
+      hostname: "aeo-contract-api.vercel.app",
+      port: 443,
+      path: "/api/slack-contract",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(bodyStr)
+      }
+    };
 
-  const pipelineLines = [];
+    const req = https.request(options, () => {
+      // Response received — but we don't care, we already resolved
+    });
 
-  if (result.document_id && signnowLink) {
-    const linkLabel = result.signing_link ? "Send to Client for Signing" : "View & Send Contract";
-    pipelineLines.push(`:white_check_mark: *Contract* generated — <${signnowLink}|${linkLabel}>`);
-  } else {
-    pipelineLines.push(`:x: *Contract* generation failed`);
-  }
+    req.on("error", (err) => {
+      console.log("SLACK-INTERACT: fire-and-forget error (non-fatal):", err.message);
+    });
 
-  if (result.stripe && !result.stripe.error && result.stripe.invoiceUrl) {
-    const invoiceLabel = result.stripe.recurring ? "View Subscription Invoice" : "View Invoice";
-    pipelineLines.push(`:white_check_mark: *Stripe Invoice* created${result.stripe.recurring ? " (recurring monthly)" : ""} — <${result.stripe.invoiceUrl}|${invoiceLabel}>`);
-  } else {
-    pipelineLines.push(`:x: *Stripe Invoice* failed${result.stripe && result.stripe.error ? ": " + result.stripe.error : ""}`);
-  }
-
-  return [
-    { type: "header", text: { type: "plain_text", text: "New Contract Created", emoji: true } },
-    {
-      type: "section",
-      fields: [
-        { type: "mrkdwn", text: `*Client:*\n${formData.client_first} ${formData.client_last}` },
-        { type: "mrkdwn", text: `*Company:*\n${formData.client_company}` },
-        { type: "mrkdwn", text: `*Type:*\n${contractTypeLabel}` },
-        { type: "mrkdwn", text: `*Amount:*\n$${amount.toLocaleString()}` }
-      ]
-    },
-    {
-      type: "section",
-      fields: [
-        { type: "mrkdwn", text: `*Email:*\n${formData.client_email}` },
-        { type: "mrkdwn", text: `*Title:*\n${formData.client_title}` }
-      ]
-    },
-    { type: "divider" },
-    { type: "section", text: { type: "mrkdwn", text: "*Pipeline Results:*" } },
-    { type: "section", text: { type: "mrkdwn", text: pipelineLines.join("\n") } },
-    { type: "context", elements: [{ type: "mrkdwn", text: `Scope: ${formData.scope || "N/A"}` }] }
-  ];
+    // Write the body and flush — resolve once data is sent
+    req.write(bodyStr, () => {
+      req.end();
+      // Small delay to ensure TCP data is flushed
+      setTimeout(resolve, 200);
+    });
+  });
 }
 
 // ==================== MAIN HANDLER ====================
@@ -175,9 +125,6 @@ module.exports = async (req, res) => {
     return res.status(200).send("");
   }
 
-  const token = process.env.SLACK_BOT_TOKEN;
-  const userId = payload.user && payload.user.id;
-
   // Extract form values
   const formValues = extractFormValues(payload.view.state);
   console.log("SLACK-INTERACT: formValues=" + JSON.stringify(formValues));
@@ -195,75 +142,15 @@ module.exports = async (req, res) => {
 
   console.log("SLACK-INTERACT: company=" + formData.client_company + " email=" + formData.client_email);
 
-  // Respond to Slack IMMEDIATELY to close the modal (must be within 3s)
-  res.status(200).json({ response_action: "clear" });
-  console.log("SLACK-INTERACT: Modal closed, firing pipeline...");
+  // STEP 1: Fire the request to /api/slack-contract FIRST
+  // This creates a NEW Vercel function invocation that runs independently
+  console.log("SLACK-INTERACT: Firing pipeline to /api/slack-contract...");
+  await fireAndForget(formData);
+  console.log("SLACK-INTERACT: Pipeline request sent");
 
-  // Now run the pipeline (function stays alive for up to 60s on Hobby plan)
-  try {
-    // 1. Post "Processing..." message to channel immediately
-    if (token) {
-      console.log("SLACK-INTERACT: Posting processing msg");
-      await slackAPI("chat.postMessage", {
-        channel: SLACK_CHANNEL,
-        text: `:hourglass_flowing_sand: *Generating contract for ${formData.client_company}...* This takes about 15 seconds.`
-      }, token);
-    }
-
-    // 2. Call the pipeline
-    console.log("SLACK-INTERACT: Calling pipeline...");
-    const pipelineResult = await postJSON(
-      "aeo-contract-api.vercel.app",
-      "/api/generate-and-send",
-      formData,
-      {}
-    );
-
-    console.log("SLACK-INTERACT: Pipeline status=" + pipelineResult.status);
-    const result = pipelineResult.data || {};
-    console.log("SLACK-INTERACT: success=" + result.success);
-
-    // 3. Post results to channel
-    if (token) {
-      if (result.success) {
-        const blocks = buildSuccessBlocks(result, formData);
-        await slackAPI("chat.postMessage", {
-          channel: SLACK_CHANNEL,
-          text: "New contract created for " + formData.client_company,
-          blocks: blocks
-        }, token);
-        console.log("SLACK-INTERACT: Posted results to channel");
-      } else {
-        await slackAPI("chat.postMessage", {
-          channel: SLACK_CHANNEL,
-          text: `:warning: Contract pipeline error for *${formData.client_company}*: ${result.message || result.error || "Unknown error"}`
-        }, token);
-      }
-    }
-
-    // 4. DM the user
-    if (token && userId) {
-      try {
-        const dmText = result.success
-          ? `:white_check_mark: Contract for *${formData.client_company}* is ready! Check <#${SLACK_CHANNEL}> for the links.`
-          : `:x: Contract for *${formData.client_company}* had issues: ${result.message || result.error || "Unknown"}`;
-        await slackAPI("chat.postMessage", { channel: userId, text: dmText }, token);
-      } catch(e) {
-        console.log("SLACK-INTERACT: DM failed:", e.message);
-      }
-    }
-
-    console.log("SLACK-INTERACT: All done");
-
-  } catch(err) {
-    console.error("SLACK-INTERACT: Error:", err.message);
-    if (token) {
-      try {
-        await slackAPI("chat.postMessage", {
-          channel: SLACK_CHANNEL,
-          text: `:x: Contract pipeline crashed for *${formData.client_company || "unknown"}*: ${err.message}`
-        }, token);
-      } catch(e) {}
-    }
-  }
+  // STEP 2: Respond to Slack to close the modal
+  // Even if this function gets killed after res.send(), the pipeline
+  // is already running in the separate /api/slack-contract function
+  console.log("SLACK-INTERACT: Closing modal");
+  return res.status(200).json({ response_action: "clear" });
 };

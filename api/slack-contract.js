@@ -262,7 +262,18 @@ module.exports = async (req, res) => {
     amount: pipelineBody.amount
   }));
 
-  // Step 3: Call the main generate-and-send endpoint internally
+  // Step 3: Post "Processing..." message to channel
+  if (slackToken) {
+    try {
+      await postToSlack(slackToken, SLACK_CHANNEL,
+        `:hourglass_flowing_sand: *Generating contract for ${body.client_company}...* This takes about 15 seconds.`
+      );
+    } catch(e) {
+      console.log("SLACK-CONTRACT: Failed to post processing msg:", e.message);
+    }
+  }
+
+  // Step 4: Call the main generate-and-send endpoint internally
   try {
     const pipelineResult = await postJSON(
       "aeo-contract-api.vercel.app",
