@@ -162,7 +162,7 @@ function buildSuccessBlocks(result, body) {
       text: {
         type: "mrkdwn",
         text: [
-          result.document_id ? `:white_check_mark: *Contract* generated and uploaded to SignNow` : `:x: *Contract* generation failed`,
+          result.document_id ? `:white_check_mark: *Contract* generated — <https://app.signnow.com/webapp/document/${result.document_id}|View & Send Contract>` : `:x: *Contract* generation failed`,
           result.stripe && !result.stripe.error
             ? `:white_check_mark: *Stripe Invoice* created — <${result.stripe.invoiceUrl}|View Invoice>`
             : `:x: *Stripe Invoice* failed${result.stripe && result.stripe.error ? ": " + result.stripe.error : ""}`,
