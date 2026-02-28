@@ -1,1 +1,8 @@
-{"data":"bW9kdWxlLmV4cG9ydHMgPSAocmVxLCByZXMpID0+IHsKICByZXMuc3RhdHVzKDIwMCkuanNvbih7CiAgICBzdGF0dXM6ICJvayIsCiAgICB0aW1lc3RhbXA6IG5ldyBEYXRlKCkudG9JU09TdHJpbmcoKSwKICAgIHZlcnNpb246ICJ2Mi1tb2RpZmllZCIsCiAgICBtb2RzOiBbIjIwMC1mb3ItaW5jb21wbGV0ZSIsICJzaWdubm93LWludml0ZS1kaXNhYmxlZCJdCiAgfSk7Cn07"}
+module.exports = (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    version: "v2-modified",
+    mods: ["200-for-incomplete", "signnow-invite-disabled"]
+  });
+};

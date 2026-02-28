@@ -1,1 +1,13 @@
-{"data":"ewogICJuYW1lIjogImFlby1jb250cmFjdC1hcGkiLAogICJ2ZXJzaW9uIjogIjEuMC4wIiwKICAiZGVzY3JpcHRpb24iOiAiQUVPIExhYnMgQ29udHJhY3QgR2VuZXJhdGlvbiAmIFNpZ25Ob3cgQVBJIiwKICAicHJpdmF0ZSI6IHRydWUsCiAgInNjcmlwdHMiOiB7CiAgICAiZGV2IjogInZlcmNlbCBkZXYiLAogICAgImRlcGxveSI6ICJ2ZXJjZWwgLS1wcm9kIgogIH0sCiAgImRlcGVuZGVuY2llcyI6IHsKICAgICJkb2N4IjogIl45LjUuMyIKICB9Cn0K"}
+{
+  "name": "aeo-contract-api",
+  "version": "1.0.0",
+  "description": "AEO Labs Contract Generation & SignNow API",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "docx": "^9.5.3"
+  }
+}
