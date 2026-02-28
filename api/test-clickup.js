@@ -27,38 +27,60 @@ function clickupGet(token, path) {
 
 module.exports = async (req, res) => {
   const token = process.env.CLICKUP_API_TOKEN;
-  const listId = process.env.CLICKUP_LIST_ID || "901307458702";
 
   if (!token) {
     return res.status(200).json({ error: "CLICKUP_API_TOKEN not set" });
   }
 
-  const tokenInfo = {
-    prefix: token.substring(0, 8) + "...",
-    length: token.length,
-    startsWithPk: token.startsWith("pk_")
-  };
-
   try {
-    // Test 1: Get user (auth check)
-    const userResult = await clickupGet(token, "/user");
-
-    // Test 2: Get list info (list access check)
-    const listResult = await clickupGet(token, "/list/" + listId);
-
-    // Test 3: Get teams/workspaces
+    // Get teams/workspaces
     const teamsResult = await clickupGet(token, "/team");
+    const teams = teamsResult.data.teams || [];
+
+    const results = [];
+
+    for (const team of teams) {
+      const teamInfo = { id: team.id, name: team.name, spaces: [] };
+
+      // Get spaces in this team
+      const spacesResult = await clickupGet(token, "/team/" + team.id + "/space?archived=false");
+      const spaces = spacesResult.data.spaces || [];
+
+      for (const space of spaces) {
+        const spaceInfo = { id: space.id, name: space.name, folders: [], folderlessLists: [] };
+
+        // Get folders in this space
+        const foldersResult = await clickupGet(token, "/space/" + space.id + "/folder?archived=false");
+        const folders = foldersResult.data.folders || [];
+
+        for (const folder of folders) {
+          const folderInfo = { id: folder.id, name: folder.name, lists: [] };
+          // Folders contain lists
+          if (folder.lists) {
+            for (const list of folder.lists) {
+              folderInfo.lists.push({ id: list.id, name: list.name });
+            }
+          }
+          spaceInfo.folders.push(folderInfo);
+        }
+
+        // Get folderless lists
+        const listsResult = await clickupGet(token, "/space/" + space.id + "/list?archived=false");
+        const lists = listsResult.data.lists || [];
+        for (const list of lists) {
+          spaceInfo.folderlessLists.push({ id: list.id, name: list.name });
+        }
+
+        teamInfo.spaces.push(spaceInfo);
+      }
+      results.push(teamInfo);
+    }
 
     res.status(200).json({
-      tokenInfo,
-      listId,
-      tests: {
-        user: userResult,
-        list: listResult,
-        teams: teamsResult
-      }
+      configuredListId: process.env.CLICKUP_LIST_ID || "901307458702",
+      workspace: results
     });
   } catch(err) {
-    res.status(200).json({ tokenInfo, error: err.message });
+    res.status(200).json({ error: err.message });
   }
 };
