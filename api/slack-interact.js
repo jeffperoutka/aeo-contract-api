@@ -121,15 +121,10 @@ function buildSuccessBlocks(result, formData) {
   }
 
   if (result.stripe && !result.stripe.error && result.stripe.invoiceUrl) {
-    pipelineLines.push(`:white_check_mark: *Stripe Invoice* created — <${result.stripe.invoiceUrl}|View Invoice>`);
+    const invoiceLabel = result.stripe.recurring ? "View Subscription Invoice" : "View Invoice";
+    pipelineLines.push(`:white_check_mark: *Stripe Invoice* created${result.stripe.recurring ? " (recurring monthly)" : ""} — <${result.stripe.invoiceUrl}|${invoiceLabel}>`);
   } else {
     pipelineLines.push(`:x: *Stripe Invoice* failed${result.stripe && result.stripe.error ? ": " + result.stripe.error : ""}`);
-  }
-
-  if (result.clickup && result.clickup.id) {
-    pipelineLines.push(`:white_check_mark: *ClickUp Task* created — <${result.clickup.url}|View Task>`);
-  } else {
-    pipelineLines.push(`:x: *ClickUp Task* failed${result.clickup && result.clickup.error ? ": " + result.clickup.error : ""}`);
   }
 
   return [
@@ -200,9 +195,11 @@ module.exports = async (req, res) => {
 
   console.log("SLACK-INTERACT: company=" + formData.client_company + " email=" + formData.client_email);
 
-  // DO NOT respond to Slack yet — we need the function to stay alive.
-  // Slack will show a brief error after 3s, but our pipeline WILL complete.
+  // Respond to Slack IMMEDIATELY to close the modal (must be within 3s)
+  res.status(200).json({ response_action: "clear" });
+  console.log("SLACK-INTERACT: Modal closed, firing pipeline...");
 
+  // Now run the pipeline (function stays alive for up to 60s on Hobby plan)
   try {
     // 1. Post "Processing..." message to channel immediately
     if (token) {
@@ -269,7 +266,4 @@ module.exports = async (req, res) => {
       } catch(e) {}
     }
   }
-
-  // Respond to Slack (even though it already timed out, this is harmless)
-  return res.status(200).json({ response_action: "clear" });
 };

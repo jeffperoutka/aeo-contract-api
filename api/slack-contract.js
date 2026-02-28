@@ -164,11 +164,8 @@ function buildSuccessBlocks(result, body) {
         text: [
           result.document_id ? `:white_check_mark: *Contract* generated — <${result.signing_link || ('https://app.signnow.com/webapp/document/' + result.document_id)}|${result.signing_link ? 'Send to Client for Signing' : 'View & Send Contract'}>` : `:x: *Contract* generation failed`,
           result.stripe && !result.stripe.error
-            ? `:white_check_mark: *Stripe Invoice* created — <${result.stripe.invoiceUrl}|View Invoice>`
-            : `:x: *Stripe Invoice* failed${result.stripe && result.stripe.error ? ": " + result.stripe.error : ""}`,
-          result.clickup && result.clickup.id
-            ? `:white_check_mark: *ClickUp Task* created — <${result.clickup.url}|View Task>`
-            : `:x: *ClickUp Task* failed${result.clickup && result.clickup.error ? ": " + result.clickup.error : ""}`
+            ? `:white_check_mark: *Stripe Invoice* created${result.stripe.recurring ? " (recurring monthly)" : ""} — <${result.stripe.invoiceUrl}|View Invoice>`
+            : `:x: *Stripe Invoice* failed${result.stripe && result.stripe.error ? ": " + result.stripe.error : ""}`
         ].join("\n")
       }
     },

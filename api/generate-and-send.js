@@ -126,16 +126,16 @@ async function snAddFields(token, docId, pageCount) {
   const today = new Date();
   const dateStr = today.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 
-  // Client signature page has generous space — signature area ~middle of page
+  // Client signature page — signature at ~middle, date at ~4/5 down the page
   const payload = JSON.stringify({
     fields: [
       {
-        x: 55, y: 380, width: 300, height: 60,
+        x: 55, y: 450, width: 300, height: 60,
         type: "signature", page_number: lastPage,
         required: true, role: "Client", label: "Signature",
       },
       {
-        x: 55, y: 520, width: 250, height: 30,
+        x: 55, y: 620, width: 250, height: 30,
         type: "text", page_number: lastPage,
         required: true, role: "Client", label: "Date",
         prefilled_text: dateStr,
@@ -757,7 +757,6 @@ function stripeRequest(method, path, formData) {
   return new Promise((resolve, reject) => {
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeKey) return reject(new Error("STRIPE_SECRET_KEY not set"));
-    const encoded = Buffer.from(formData).toString();
     const options = {
       hostname: "api.stripe.com",
       port: 443,
@@ -765,50 +764,112 @@ function stripeRequest(method, path, formData) {
       method: method,
       headers: {
         "Authorization": "Basic " + Buffer.from(stripeKey + ":").toString("base64"),
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Content-Length": Buffer.byteLength(formData)
       }
     };
+    if (formData && method !== "GET") {
+      options.headers["Content-Type"] = "application/x-www-form-urlencoded";
+      options.headers["Content-Length"] = Buffer.byteLength(formData);
+    }
     const req = https.request(options, (res) => {
       let data = "";
       res.on("data", (chunk) => data += chunk);
       res.on("end", () => {
-        try { resolve(JSON.parse(data)); }
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.error) {
+            console.error("STRIPE API ERROR: " + JSON.stringify(parsed.error));
+          }
+          resolve(parsed);
+        }
         catch(e) { reject(new Error("Stripe parse error: " + data.substring(0, 200))); }
       });
     });
     req.on("error", reject);
-    req.write(formData);
+    if (formData && method !== "GET") req.write(formData);
     req.end();
   });
 }
 
-async function createStripeInvoice(clientEmail, clientName, clientCompany, amountCents, description) {
+async function createStripeInvoice(clientEmail, clientName, clientCompany, amountCents, description, isRecurring) {
   console.log("STRIPE: Creating customer for " + clientEmail);
   // Create or find customer
-  const customer = await stripeRequest("POST", "/customers", 
-    "email=" + encodeURIComponent(clientEmail) + "&name=" + encodeURIComponent(clientName) + "&metadata[company]=" + encodeURIComponent(clientCompany)
+  const customer = await stripeRequest("POST", "/customers",
+    "email=" + encodeURIComponent(clientEmail) +
+    "&name=" + encodeURIComponent(clientName) +
+    "&metadata[company]=" + encodeURIComponent(clientCompany) +
+    "&invoice_settings[custom_fields][0][name]=" + encodeURIComponent("Company") +
+    "&invoice_settings[custom_fields][0][value]=" + encodeURIComponent(clientCompany)
   );
   console.log("STRIPE: Customer created: " + customer.id);
-  
-  // Create invoice
-  console.log("STRIPE: Creating invoice for " + amountCents + " cents");
-  const invoice = await stripeRequest("POST", "/invoices",
-    "customer=" + customer.id + "&collection_method=send_invoice&days_until_due=30&auto_advance=true"
-  );
-  console.log("STRIPE: Invoice created: " + invoice.id);
-  
-  // Add invoice item
-  await stripeRequest("POST", "/invoiceitems",
-    "customer=" + customer.id + "&invoice=" + invoice.id + "&amount=" + amountCents + "&currency=usd&description=" + encodeURIComponent(description)
-  );
-  console.log("STRIPE: Invoice item added");
-  
-  // Finalize invoice
-  const finalized = await stripeRequest("POST", "/invoices/" + invoice.id + "/finalize", "");
-  console.log("STRIPE: Invoice finalized, status: " + finalized.status);
-  
-  return { customerId: customer.id, invoiceId: invoice.id, invoiceUrl: finalized.hosted_invoice_url, invoicePdf: finalized.invoice_pdf };
+
+  if (isRecurring) {
+    // Phase 2: Create a recurring subscription (monthly auto-bill)
+    console.log("STRIPE: Creating recurring subscription for " + amountCents + " cents/month");
+
+    // Create a price for this subscription
+    const price = await stripeRequest("POST", "/prices",
+      "unit_amount=" + amountCents +
+      "&currency=usd" +
+      "&recurring[interval]=month" +
+      "&product_data[name]=" + encodeURIComponent(description)
+    );
+    console.log("STRIPE: Price created: " + price.id);
+
+    // Create subscription with ACH payment
+    const subscription = await stripeRequest("POST", "/subscriptions",
+      "customer=" + customer.id +
+      "&items[0][price]=" + price.id +
+      "&payment_behavior=default_incomplete" +
+      "&payment_settings[payment_method_types][0]=us_bank_account" +
+      "&collection_method=send_invoice" +
+      "&days_until_due=30"
+    );
+    console.log("STRIPE: Subscription created: " + subscription.id + " status: " + subscription.status);
+
+    // Get the latest invoice from the subscription
+    const latestInvoiceId = subscription.latest_invoice;
+    if (latestInvoiceId) {
+      const invoice = await stripeRequest("GET", "/invoices/" + latestInvoiceId, "");
+      return {
+        customerId: customer.id,
+        subscriptionId: subscription.id,
+        invoiceId: latestInvoiceId,
+        invoiceUrl: invoice.hosted_invoice_url,
+        invoicePdf: invoice.invoice_pdf,
+        recurring: true
+      };
+    }
+
+    return { customerId: customer.id, subscriptionId: subscription.id, recurring: true };
+
+  } else {
+    // Sprint 1: One-time invoice with ACH payment
+    console.log("STRIPE: Creating one-time invoice for " + amountCents + " cents");
+    const invoice = await stripeRequest("POST", "/invoices",
+      "customer=" + customer.id +
+      "&collection_method=send_invoice" +
+      "&days_until_due=30" +
+      "&auto_advance=true" +
+      "&payment_settings[payment_method_types][0]=us_bank_account"
+    );
+    console.log("STRIPE: Invoice created: " + invoice.id);
+
+    // Add invoice item
+    const item = await stripeRequest("POST", "/invoiceitems",
+      "customer=" + customer.id +
+      "&invoice=" + invoice.id +
+      "&amount=" + amountCents +
+      "&currency=usd" +
+      "&description=" + encodeURIComponent(description)
+    );
+    console.log("STRIPE: Invoice item added: " + item.id);
+
+    // Finalize invoice
+    const finalized = await stripeRequest("POST", "/invoices/" + invoice.id + "/finalize", "");
+    console.log("STRIPE: Invoice finalized, status: " + finalized.status);
+
+    return { customerId: customer.id, invoiceId: invoice.id, invoiceUrl: finalized.hosted_invoice_url, invoicePdf: finalized.invoice_pdf, recurring: false };
+  }
 }
 
 // ==================== CLICKUP INTEGRATION ====================
@@ -963,40 +1024,24 @@ module.exports = async function handler(req, res) {
     let stripeResult = null;
     try {
       const amountCents = Math.round(parseFloat(amount) * 100);
+      const isRecurring = contractType === "phase2";
+      const invoiceDesc = contractType === "sprint1"
+        ? "AEO Labs - AI Visibility Sprint"
+        : "AEO Labs - Phase 2 Retainer: " + (body.scope || body.deliverable || "Monthly Retainer");
+      console.log("STRIPE: amountCents=" + amountCents + " recurring=" + isRecurring);
       stripeResult = await createStripeInvoice(
         body.client_email, clientName, body.client_company,
-        amountCents, contractType === "sprint1" ? "AI Visibility Sprint" : "Phase 2 Retainer - " + (body.scope || body.deliverable || "")
+        amountCents, invoiceDesc, isRecurring
       );
-      console.log("STRIPE: Success - Invoice URL: " + stripeResult.invoiceUrl);
+      console.log("STRIPE: Success - Invoice URL: " + (stripeResult.invoiceUrl || "N/A") + " recurring=" + !!stripeResult.recurring);
     } catch (stripeErr) {
       console.error("STRIPE ERROR: " + stripeErr.message);
       stripeResult = { error: stripeErr.message };
     }
 
-    // ==================== CLICKUP NOTIFICATION ====================
-    let clickupResult = null;
-    try {
-      clickupResult = await createClickUpTask(
-        body.client_company, contractType, amount, body.client_email,
-        docId, stripeResult && stripeResult.invoiceUrl ? stripeResult.invoiceUrl : null
-      );
-      // Check if ClickUp API returned an error in the response body (e.g. {err: "...", ECODE: "..."})
-      if (clickupResult && (clickupResult.err || clickupResult.error)) {
-        const errMsg = clickupResult.err || clickupResult.error;
-        console.error("CLICKUP API ERROR: " + errMsg + (clickupResult.ECODE ? " (ECODE: " + clickupResult.ECODE + ")" : ""));
-        clickupResult = { error: errMsg, ECODE: clickupResult.ECODE || null };
-      } else {
-        console.log("CLICKUP: Success - Task ID: " + (clickupResult.id || "unknown"));
-      }
-    } catch (clickupErr) {
-      console.error("CLICKUP ERROR: " + clickupErr.message);
-      clickupResult = { error: clickupErr.message };
-    }
-
-    const clickupOk = clickupResult && !clickupResult.error && !clickupResult.err;
     return res.status(200).json({
       success: true,
-      message: "Contract generated, uploaded to SignNow" + (stripeResult && !stripeResult.error ? ", Stripe invoice created" : "") + (clickupOk ? ", ClickUp task created" : ""),
+      message: "Contract generated, uploaded to SignNow" + (stripeResult && !stripeResult.error ? ", Stripe invoice created" : ""),
       document_id: docId,
       signing_link: signingLink,
       contract_type: contractType,
@@ -1004,7 +1049,6 @@ module.exports = async function handler(req, res) {
       company: body.client_company,
       amount: formattedAmount,
       stripe: stripeResult || { skipped: true },
-      clickup: clickupOk ? { id: clickupResult.id, url: clickupResult.url } : (clickupResult && clickupResult.error ? { error: clickupResult.error, ECODE: clickupResult.ECODE } : { skipped: true })
     });
 
   } catch (err) {
