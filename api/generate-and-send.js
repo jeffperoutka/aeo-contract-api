@@ -126,15 +126,16 @@ async function snAddFields(token, docId, pageCount) {
   const today = new Date();
   const dateStr = today.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 
+  // Client signature page has generous space — signature area ~middle of page
   const payload = JSON.stringify({
     fields: [
       {
-        x: 55, y: 270, width: 220, height: 35,
+        x: 55, y: 380, width: 300, height: 60,
         type: "signature", page_number: lastPage,
         required: true, role: "Client", label: "Signature",
       },
       {
-        x: 55, y: 340, width: 180, height: 25,
+        x: 55, y: 520, width: 250, height: 30,
         type: "text", page_number: lastPage,
         required: true, role: "Client", label: "Date",
         prefilled_text: dateStr,
@@ -182,25 +183,44 @@ async function snSendInvite(token, docId, signerEmail, signerName) {
   return res;
 }
 
-// ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-// CONTRACT GENERATION (embedded â same logic as generate_contract.js)
-// ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ================================================================
+// CONTRACT GENERATION -- Option B "Bold Header" branded design
+// ================================================================
 
-const FONT = "Space Grotesk";
+const HEADING_FONT = "Tektur";
+const BODY_FONT = "Space Grotesk";
 const BLACK = "000000";
 const DARK_GRAY = "333333";
 const MEDIUM_GRAY = "666666";
 const LIGHT_GRAY = "999999";
+const NEON_GREEN = "94F721";
 
 const noBorder = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
+
+// Load logo images for header/title page
+let LOGO_BLACK_BUFFER = null;
+let LOGO_WHITE_BUFFER = null;
+try {
+  const logoBlackPath = path.join(__dirname, "..", "assets", "aeo_logo_black.png");
+  if (fs.existsSync(logoBlackPath)) LOGO_BLACK_BUFFER = fs.readFileSync(logoBlackPath);
+  const logoWhitePath = path.join(__dirname, "..", "assets", "aeo_logo_white.png");
+  if (fs.existsSync(logoWhitePath)) LOGO_WHITE_BUFFER = fs.readFileSync(logoWhitePath);
+} catch {}
+// Fallback: load from env vars (production)
+if (!LOGO_BLACK_BUFFER && process.env.AEO_LOGO_BLACK_BASE64) {
+  LOGO_BLACK_BUFFER = Buffer.from(process.env.AEO_LOGO_BLACK_BASE64, "base64");
+}
+if (!LOGO_WHITE_BUFFER && process.env.AEO_LOGO_WHITE_BASE64) {
+  LOGO_WHITE_BUFFER = Buffer.from(process.env.AEO_LOGO_WHITE_BASE64, "base64");
+}
 
 function sectionTitle(number, title) {
   return new Paragraph({
     spacing: { before: 380, after: 160 },
-    border: { bottom: { style: BorderStyle.SINGLE, size: 3, color: BLACK, space: 6 } },
+    border: { bottom: { style: BorderStyle.SINGLE, size: 2, color: NEON_GREEN, space: 6 } },
     children: [
-      new TextRun({ text: `Section ${number}:  `, bold: true, font: FONT, size: 22, color: BLACK }),
-      new TextRun({ text: title, bold: true, font: FONT, size: 22, color: BLACK }),
+      new TextRun({ text: `${number}.  `, bold: true, font: HEADING_FONT, size: 24, color: NEON_GREEN }),
+      new TextRun({ text: title, bold: true, font: HEADING_FONT, size: 24, color: BLACK }),
     ],
   });
 }
@@ -208,7 +228,7 @@ function sectionTitle(number, title) {
 function bodyText(text) {
   return new Paragraph({
     spacing: { after: 160, line: 276 },
-    children: [new TextRun({ text, font: FONT, size: 20, color: DARK_GRAY })],
+    children: [new TextRun({ text, font: BODY_FONT, size: 20, color: DARK_GRAY })],
   });
 }
 
@@ -216,8 +236,8 @@ function boldBodyText(label, text) {
   return new Paragraph({
     spacing: { after: 140, line: 276 },
     children: [
-      new TextRun({ text: label, bold: true, font: FONT, size: 20, color: BLACK }),
-      new TextRun({ text, font: FONT, size: 20, color: DARK_GRAY }),
+      new TextRun({ text: label, bold: true, font: BODY_FONT, size: 20, color: BLACK }),
+      new TextRun({ text, font: BODY_FONT, size: 20, color: DARK_GRAY }),
     ],
   });
 }
@@ -225,133 +245,232 @@ function boldBodyText(label, text) {
 function heading(text) {
   return new Paragraph({
     spacing: { before: 340, after: 140 },
-    children: [new TextRun({ text, bold: true, font: FONT, size: 24, color: BLACK })],
+    children: [new TextRun({ text, bold: true, font: HEADING_FONT, size: 24, color: BLACK })],
   });
 }
 
-// Jeff's signature image â bundled as base64 for serverless (no filesystem dependency)
+// Jeff signature image
 let JEFF_SIG_BUFFER = null;
 try {
-  // Try loading from file first (local dev)
   const sigPath = path.join(__dirname, "..", "assets", "jeff_signature.png");
-  if (fs.existsSync(sigPath)) {
-    JEFF_SIG_BUFFER = fs.readFileSync(sigPath);
-  }
+  if (fs.existsSync(sigPath)) JEFF_SIG_BUFFER = fs.readFileSync(sigPath);
 } catch {}
-
-// Fallback: load from base64 env var (production)
 if (!JEFF_SIG_BUFFER && process.env.JEFF_SIGNATURE_BASE64) {
   JEFF_SIG_BUFFER = Buffer.from(process.env.JEFF_SIGNATURE_BASE64, "base64");
 }
 
-function signatureBlock(name, title, company, prefilled, formattedDate) {
-  const dateText = prefilled ? formattedDate : " ";
+// Jeff pre-filled signature page (separate page)
+function jeffSignaturePage(formattedDate) {
+  const elements = [
+    new Paragraph({ children: [new PageBreak()] }),
+    new Paragraph({
+      spacing: { before: 200, after: 240 }, alignment: AlignmentType.CENTER,
+      border: {
+        bottom: { style: BorderStyle.SINGLE, size: 2, color: NEON_GREEN, space: 8 },
+        top: { style: BorderStyle.SINGLE, size: 4, color: BLACK, space: 8 },
+      },
+      children: [new TextRun({ text: "SIGNATURES", bold: true, font: HEADING_FONT, size: 26, color: BLACK })],
+    }),
+    bodyText("IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above."),
+    new Paragraph({ spacing: { before: 300 }, children: [] }),
+    new Paragraph({
+      spacing: { before: 200, after: 80 },
+      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: BLACK, space: 4 } },
+      children: [new TextRun({ text: "SERVICE PROVIDER", bold: true, font: HEADING_FONT, size: 22, color: BLACK })],
+    }),
+    new Paragraph({ spacing: { before: 300 }, children: [] }),
+  ];
 
-  const sigLineChildren = prefilled && JEFF_SIG_BUFFER
-    ? [new ImageRun({
+  // Signature image
+  if (JEFF_SIG_BUFFER) {
+    elements.push(new Paragraph({
+      spacing: { after: 8 },
+      children: [new ImageRun({
         data: JEFF_SIG_BUFFER,
         transformation: { width: 200, height: 58 },
         type: "png",
-      })]
-    : [new TextRun({ text: " ", font: FONT, size: 20, color: "FFFFFF" })];
+      })],
+    }));
+  }
 
-  return [
-    new Paragraph({ spacing: { before: 400 }, children: [] }),
+  elements.push(
     new Paragraph({
       spacing: { after: 8 },
       border: { bottom: { style: BorderStyle.SINGLE, size: 3, color: BLACK, space: 1 } },
-      children: sigLineChildren,
+      children: [new TextRun({ text: " ", font: BODY_FONT, size: 20, color: "FFFFFF" })],
+    }),
+    new Paragraph({
+      spacing: { after: 60 },
+      children: [new TextRun({ text: "Signature", font: BODY_FONT, size: 17, color: MEDIUM_GRAY, italics: true })],
+    }),
+    new Paragraph({
+      spacing: { before: 100, after: 30 },
+      children: [new TextRun({ text: "Jeffrey Peroutka", bold: true, font: BODY_FONT, size: 22, color: BLACK })],
     }),
     new Paragraph({
       spacing: { after: 30 },
-      children: [new TextRun({ text: "Signature", font: FONT, size: 17, color: MEDIUM_GRAY, italics: true })],
+      children: [new TextRun({ text: "CEO", font: BODY_FONT, size: 20, color: MEDIUM_GRAY })],
     }),
+    new Paragraph({
+      spacing: { after: 30 },
+      children: [new TextRun({ text: "AEO Labs LLC", font: BODY_FONT, size: 20, color: MEDIUM_GRAY })],
+    }),
+    new Paragraph({ spacing: { before: 140 }, children: [] }),
+    new Paragraph({
+      spacing: { after: 8 },
+      border: { bottom: { style: BorderStyle.SINGLE, size: 3, color: BLACK, space: 1 } },
+      children: [new TextRun({ text: formattedDate, font: BODY_FONT, size: 20, color: DARK_GRAY })],
+    }),
+    new Paragraph({
+      spacing: { after: 30 },
+      children: [new TextRun({ text: "Date", font: BODY_FONT, size: 17, color: MEDIUM_GRAY, italics: true })],
+    }),
+  );
+
+  return elements;
+}
+
+// Client signature page (separate page, generous space for SignNow)
+function clientSignaturePage(clientName, clientTitle, clientCompany) {
+  return [
+    new Paragraph({ children: [new PageBreak()] }),
+    new Paragraph({ spacing: { before: 300 }, children: [] }),
+    new Paragraph({
+      spacing: { before: 200, after: 80 },
+      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: BLACK, space: 4 } },
+      children: [new TextRun({ text: "CLIENT", bold: true, font: HEADING_FONT, size: 22, color: BLACK })],
+    }),
+    new Paragraph({ spacing: { before: 200, after: 30 }, children: [] }),
+    new Paragraph({
+      spacing: { after: 30 },
+      children: [
+        new TextRun({ text: "Name:  ", font: BODY_FONT, size: 20, color: MEDIUM_GRAY }),
+        new TextRun({ text: clientName, bold: true, font: BODY_FONT, size: 22, color: BLACK }),
+      ],
+    }),
+    new Paragraph({
+      spacing: { after: 30 },
+      children: [
+        new TextRun({ text: "Title:  ", font: BODY_FONT, size: 20, color: MEDIUM_GRAY }),
+        new TextRun({ text: clientTitle, font: BODY_FONT, size: 20, color: DARK_GRAY }),
+      ],
+    }),
+    new Paragraph({
+      spacing: { after: 60 },
+      children: [
+        new TextRun({ text: "Company:  ", font: BODY_FONT, size: 20, color: MEDIUM_GRAY }),
+        new TextRun({ text: clientCompany, font: BODY_FONT, size: 20, color: DARK_GRAY }),
+      ],
+    }),
+    // Large signing area
+    new Paragraph({ spacing: { before: 500 }, children: [] }),
     new Paragraph({ spacing: { before: 200 }, children: [] }),
     new Paragraph({
       spacing: { after: 8 },
       border: { bottom: { style: BorderStyle.SINGLE, size: 3, color: BLACK, space: 1 } },
-      children: [new TextRun({ text: dateText, font: FONT, size: 20, color: prefilled ? DARK_GRAY : "FFFFFF" })],
+      children: [new TextRun({ text: " ", font: BODY_FONT, size: 60, color: "FFFFFF" })],
+    }),
+    new Paragraph({
+      spacing: { after: 60 },
+      children: [new TextRun({ text: "Signature", font: BODY_FONT, size: 17, color: MEDIUM_GRAY, italics: true })],
+    }),
+    // Date line
+    new Paragraph({ spacing: { before: 300 }, children: [] }),
+    new Paragraph({
+      spacing: { after: 8 },
+      border: { bottom: { style: BorderStyle.SINGLE, size: 3, color: BLACK, space: 1 } },
+      children: [new TextRun({ text: " ", font: BODY_FONT, size: 28, color: "FFFFFF" })],
     }),
     new Paragraph({
       spacing: { after: 30 },
-      children: [new TextRun({ text: "Date", font: FONT, size: 17, color: MEDIUM_GRAY, italics: true })],
-    }),
-    new Paragraph({
-      spacing: { before: 140, after: 30 },
-      children: [new TextRun({ text: name, bold: true, font: FONT, size: 20, color: BLACK })],
-    }),
-    new Paragraph({
-      spacing: { after: 30 },
-      children: [new TextRun({ text: title, font: FONT, size: 20, color: MEDIUM_GRAY })],
-    }),
-    new Paragraph({
-      spacing: { after: 30 },
-      children: [new TextRun({ text: company, font: FONT, size: 20, color: MEDIUM_GRAY })],
+      children: [new TextRun({ text: "Date", font: BODY_FONT, size: 17, color: MEDIUM_GRAY, italics: true })],
     }),
   ];
 }
 
 function titlePage(subtitle, clientCompany, clientFirst, clientLast, clientTitle, formattedDate) {
-  return [
-    new Paragraph({ spacing: { before: 2400 }, children: [] }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER, spacing: { after: 40 },
-      children: [new TextRun({ text: "AEO LABS", bold: true, font: FONT, size: 60, color: BLACK })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER, spacing: { after: 80 },
-      children: [new TextRun({ text: "LLC", bold: true, font: FONT, size: 26, color: MEDIUM_GRAY })],
-    }),
-    new Paragraph({
+  const elements = [];
+  elements.push(new Paragraph({ spacing: { before: 1200 }, children: [] }));
+
+  // Logo at top center
+  if (LOGO_BLACK_BUFFER) {
+    elements.push(new Paragraph({
       alignment: AlignmentType.CENTER,
-      border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: BLACK, space: 12 } },
-      spacing: { after: 360 }, children: [],
+      spacing: { after: 200 },
+      children: [new ImageRun({
+        data: LOGO_BLACK_BUFFER,
+        transformation: { width: 280, height: 48 },
+        type: "png",
+        altText: { title: "AEO Labs", description: "AEO Labs Logo", name: "aeo-logo" },
+      })],
+    }));
+  } else {
+    elements.push(new Paragraph({
+      alignment: AlignmentType.CENTER, spacing: { after: 200 },
+      children: [new TextRun({ text: "AEO Labs", bold: true, font: HEADING_FONT, size: 52, color: BLACK })],
+    }));
+  }
+
+  // Green accent line
+  elements.push(new Paragraph({
+    alignment: AlignmentType.CENTER,
+    border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: NEON_GREEN, space: 12 } },
+    spacing: { after: 400 }, children: [],
+  }));
+
+  elements.push(
+    new Paragraph({
+      alignment: AlignmentType.CENTER, spacing: { after: 60 },
+      children: [new TextRun({ text: "MASTER SERVICES AGREEMENT", bold: true, font: HEADING_FONT, size: 30, color: BLACK })],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER, spacing: { after: 60 },
-      children: [new TextRun({ text: "MASTER SERVICES AGREEMENT", bold: true, font: FONT, size: 28, color: BLACK })],
+      children: [new TextRun({ text: "&", font: BODY_FONT, size: 24, color: MEDIUM_GRAY })],
     }),
     new Paragraph({
-      alignment: AlignmentType.CENTER, spacing: { after: 60 },
-      children: [new TextRun({ text: "&", font: FONT, size: 24, color: MEDIUM_GRAY })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER, spacing: { after: 260 },
-      children: [new TextRun({ text: "STATEMENT OF WORK", bold: true, font: FONT, size: 28, color: BLACK })],
+      alignment: AlignmentType.CENTER, spacing: { after: 280 },
+      children: [new TextRun({ text: "STATEMENT OF WORK", bold: true, font: HEADING_FONT, size: 30, color: BLACK })],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER, spacing: { after: 100 },
-      children: [new TextRun({ text: subtitle, bold: true, font: FONT, size: 22, color: DARK_GRAY })],
+      children: [new TextRun({ text: subtitle, bold: true, font: BODY_FONT, size: 22, color: DARK_GRAY })],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER, spacing: { after: 500 },
-      children: [new TextRun({ text: formattedDate, font: FONT, size: 20, color: MEDIUM_GRAY })],
+      children: [new TextRun({ text: formattedDate, font: BODY_FONT, size: 20, color: MEDIUM_GRAY })],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: BLACK, space: 8 } },
+      spacing: { after: 200 }, children: [],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER, spacing: { after: 60 },
       children: [
-        new TextRun({ text: "Prepared for  ", font: FONT, size: 20, color: MEDIUM_GRAY }),
-        new TextRun({ text: clientCompany, bold: true, font: FONT, size: 20, color: BLACK }),
+        new TextRun({ text: "Prepared for  ", font: BODY_FONT, size: 20, color: MEDIUM_GRAY }),
+        new TextRun({ text: clientCompany, bold: true, font: HEADING_FONT, size: 22, color: BLACK }),
       ],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER, spacing: { after: 60 },
-      children: [new TextRun({ text: `${clientFirst} ${clientLast}, ${clientTitle}`, font: FONT, size: 20, color: MEDIUM_GRAY })],
+      children: [new TextRun({ text: `${clientFirst} ${clientLast}, ${clientTitle}`, font: BODY_FONT, size: 20, color: MEDIUM_GRAY })],
     }),
-  ];
+  );
+
+  return elements;
 }
 
 function partiesIntro(clientCompany, formattedDate) {
   return new Paragraph({
     spacing: { before: 200, after: 200, line: 276 },
     children: [
-      new TextRun({ text: "This Master Services Agreement and Statement of Work (collectively, this \u201CAgreement\u201D) is entered into as of ", font: FONT, size: 20, color: DARK_GRAY }),
-      new TextRun({ text: formattedDate, bold: true, font: FONT, size: 20, color: BLACK }),
-      new TextRun({ text: " by and between ", font: FONT, size: 20, color: DARK_GRAY }),
-      new TextRun({ text: "AEO Labs LLC", bold: true, font: FONT, size: 20, color: BLACK }),
-      new TextRun({ text: " (\u201CService Provider\u201D) and ", font: FONT, size: 20, color: DARK_GRAY }),
-      new TextRun({ text: clientCompany, bold: true, font: FONT, size: 20, color: BLACK }),
-      new TextRun({ text: " (\u201CClient\u201D).", font: FONT, size: 20, color: DARK_GRAY }),
+      new TextRun({ text: "This Master Services Agreement and Statement of Work (collectively, this \u201CAgreement\u201D) is entered into as of ", font: BODY_FONT, size: 20, color: DARK_GRAY }),
+      new TextRun({ text: formattedDate, bold: true, font: BODY_FONT, size: 20, color: BLACK }),
+      new TextRun({ text: " by and between ", font: BODY_FONT, size: 20, color: DARK_GRAY }),
+      new TextRun({ text: "AEO Labs LLC", bold: true, font: BODY_FONT, size: 20, color: BLACK }),
+      new TextRun({ text: " (\u201CService Provider\u201D) and ", font: BODY_FONT, size: 20, color: DARK_GRAY }),
+      new TextRun({ text: clientCompany, bold: true, font: BODY_FONT, size: 20, color: BLACK }),
+      new TextRun({ text: " (\u201CClient\u201D).", font: BODY_FONT, size: 20, color: DARK_GRAY }),
     ],
   });
 }
@@ -360,10 +479,10 @@ function banner(text) {
   return new Paragraph({
     spacing: { before: 200, after: 240 }, alignment: AlignmentType.CENTER,
     border: {
-      bottom: { style: BorderStyle.SINGLE, size: 4, color: BLACK, space: 8 },
+      bottom: { style: BorderStyle.SINGLE, size: 2, color: NEON_GREEN, space: 8 },
       top: { style: BorderStyle.SINGLE, size: 4, color: BLACK, space: 8 },
     },
-    children: [new TextRun({ text, bold: true, font: FONT, size: 24, color: BLACK })],
+    children: [new TextRun({ text, bold: true, font: HEADING_FONT, size: 26, color: BLACK })],
   });
 }
 
@@ -432,21 +551,8 @@ function buildSprint1(data) {
     boldBodyText("Payment Terms:  ", "Due upon execution, prior to commencement of services."),
     bodyText("All fees are non-refundable once work has commenced."),
 
-    new Paragraph({ children: [new PageBreak()] }),
-    banner("SIGNATURES"),
-    bodyText("IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above."),
-
-    new Paragraph({
-      spacing: { before: 400, after: 100 },
-      children: [new TextRun({ text: "SERVICE PROVIDER", bold: true, font: FONT, size: 21, color: BLACK })],
-    }),
-    ...signatureBlock("Jeffrey Peroutka", "COO", "AEO Labs LLC", true, formattedDate),
-
-    new Paragraph({
-      spacing: { before: 400, after: 100 },
-      children: [new TextRun({ text: "CLIENT", bold: true, font: FONT, size: 21, color: BLACK })],
-    }),
-    ...signatureBlock(clientName, clientTitle, clientCompany, false, formattedDate),
+    ...jeffSignaturePage(formattedDate),
+    ...clientSignaturePage(clientName, clientTitle, clientCompany),
   ];
 }
 
@@ -518,30 +624,41 @@ function buildPhase2(data) {
     boldBodyText("Payment Due:  ", "First of each month"),
     boldBodyText("Initial Payment:  ", "Due upon execution of this Agreement"),
 
-    new Paragraph({ children: [new PageBreak()] }),
-    banner("SIGNATURES"),
-    bodyText("IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above."),
-
-    new Paragraph({
-      spacing: { before: 400, after: 100 },
-      children: [new TextRun({ text: "SERVICE PROVIDER", bold: true, font: FONT, size: 21, color: BLACK })],
-    }),
-    ...signatureBlock("Jeffrey Peroutka", "COO", "AEO Labs LLC", true, formattedDate),
-
-    new Paragraph({
-      spacing: { before: 400, after: 100 },
-      children: [new TextRun({ text: "CLIENT", bold: true, font: FONT, size: 21, color: BLACK })],
-    }),
-    ...signatureBlock(clientName, clientTitle, clientCompany, false, formattedDate),
+    ...jeffSignaturePage(formattedDate),
+    ...clientSignaturePage(clientName, clientTitle, clientCompany),
   ];
 }
 
 async function generateContract(data) {
   const children = data.contractType === "phase2" ? buildPhase2(data) : buildSprint1(data);
 
+  // Build header children - logo + green accent line
+  const headerChildren = [];
+  if (LOGO_BLACK_BUFFER) {
+    headerChildren.push(new Paragraph({
+      spacing: { after: 40 },
+      children: [new ImageRun({
+        data: LOGO_BLACK_BUFFER,
+        transformation: { width: 120, height: 20 },
+        type: "png",
+        altText: { title: "AEO Labs", description: "AEO Labs Logo", name: "header-logo" },
+      })],
+    }));
+  } else {
+    headerChildren.push(new Paragraph({
+      spacing: { after: 40 },
+      children: [new TextRun({ text: "AEO Labs", bold: true, font: HEADING_FONT, size: 18, color: BLACK })],
+    }));
+  }
+  // Green accent line under header
+  headerChildren.push(new Paragraph({
+    border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: NEON_GREEN, space: 1 } },
+    children: [],
+  }));
+
   const doc = new Document({
     styles: {
-      default: { document: { run: { font: FONT, size: 20 } } },
+      default: { document: { run: { font: BODY_FONT, size: 20 } } },
     },
     sections: [{
       properties: {
@@ -551,27 +668,18 @@ async function generateContract(data) {
         },
       },
       headers: {
-        default: new Header({
-          children: [
-            new Paragraph({
-              alignment: AlignmentType.RIGHT,
-              children: [
-                new TextRun({ text: "AEO Labs LLC", font: FONT, size: 15, color: LIGHT_GRAY, italics: true }),
-                new TextRun({ text: "  |  ", font: FONT, size: 15, color: LIGHT_GRAY }),
-                new TextRun({ text: "Confidential", font: FONT, size: 15, color: LIGHT_GRAY, italics: true }),
-              ],
-            }),
-          ],
-        }),
+        default: new Header({ children: headerChildren }),
       },
       footers: {
         default: new Footer({
           children: [
             new Paragraph({
-              alignment: AlignmentType.CENTER,
+              border: { top: { style: BorderStyle.SINGLE, size: 1, color: LIGHT_GRAY, space: 4 } },
+              tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
               children: [
-                new TextRun({ text: "Page ", font: FONT, size: 15, color: LIGHT_GRAY }),
-                new TextRun({ children: [PageNumber.CURRENT], font: FONT, size: 15, color: LIGHT_GRAY }),
+                new TextRun({ text: "AEO Labs LLC  |  Confidential", font: BODY_FONT, size: 14, color: LIGHT_GRAY }),
+                new TextRun({ text: "\tPage " }),
+                new TextRun({ children: [PageNumber.CURRENT], font: BODY_FONT, size: 14, color: LIGHT_GRAY }),
               ],
             }),
           ],
