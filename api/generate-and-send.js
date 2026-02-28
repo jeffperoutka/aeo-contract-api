@@ -957,7 +957,8 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    const contractType = body.contract_type === "Phase 2" ? "phase2" : "sprint1";
+    const rawType = String(body.contract_type || "").toLowerCase().trim();
+    const contractType = (rawType === "phase2" || rawType === "phase 2" || rawType === "p2") ? "phase2" : "sprint1";
     const amount = String(body.amount).replace(/[,$]/g, "");
     const contractDate = body.date || new Date().toISOString().split("T")[0];
     const dateObj = new Date(contractDate + "T12:00:00");
