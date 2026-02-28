@@ -9,6 +9,7 @@
  */
 
 const https = require("https");
+const querystring = require("querystring");
 
 function slackAPI(method, body, token) {
   return new Promise((resolve, reject) => {
@@ -35,6 +36,35 @@ function slackAPI(method, body, token) {
     req.on("error", reject);
     req.write(bodyStr);
     req.end();
+  });
+}
+
+// Parse raw body for form-urlencoded data (Slack sends this format)
+function parseBody(req) {
+  return new Promise((resolve, reject) => {
+    // If Vercel already parsed the body, use it
+    if (req.body && typeof req.body === "object" && req.body.trigger_id) {
+      return resolve(req.body);
+    }
+    // If body is a string (form-urlencoded), parse it
+    if (req.body && typeof req.body === "string") {
+      return resolve(querystring.parse(req.body));
+    }
+    // If body exists but trigger_id is missing, it might be parsed differently
+    if (req.body) {
+      return resolve(req.body);
+    }
+    // Read raw body as fallback
+    let rawBody = "";
+    req.on("data", (chunk) => rawBody += chunk);
+    req.on("end", () => {
+      try {
+        resolve(querystring.parse(rawBody));
+      } catch(e) {
+        resolve({});
+      }
+    });
+    req.on("error", reject);
   });
 }
 
@@ -151,7 +181,10 @@ function buildContractModal() {
 }
 
 module.exports = async (req, res) => {
-  console.log("SLACK-CMD: Received slash command");
+  console.log("SLACK-CMD: Received request, method=" + req.method);
+  console.log("SLACK-CMD: Content-Type=" + req.headers["content-type"]);
+  console.log("SLACK-CMD: Body type=" + typeof req.body);
+  console.log("SLACK-CMD: Body keys=" + (req.body ? Object.keys(req.body).join(",") : "null"));
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -159,23 +192,37 @@ module.exports = async (req, res) => {
 
   const token = process.env.SLACK_BOT_TOKEN;
   if (!token) {
+    console.error("SLACK-CMD: No SLACK_BOT_TOKEN");
     return res.status(200).json({
       response_type: "ephemeral",
       text: "Error: SLACK_BOT_TOKEN not configured. Contact admin."
     });
   }
 
-  // Slack sends form-urlencoded data for slash commands
-  const triggerId = req.body.trigger_id;
-  const userId = req.body.user_id;
-  const userName = req.body.user_name;
-
-  console.log("SLACK-CMD: trigger_id=" + triggerId + " user=" + userName);
-
-  if (!triggerId) {
+  // Parse the body (handles form-urlencoded, string, or pre-parsed)
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch(e) {
+    console.error("SLACK-CMD: Body parse error:", e.message);
     return res.status(200).json({
       response_type: "ephemeral",
-      text: "Error: No trigger_id received. Please try again."
+      text: "Error parsing request body"
+    });
+  }
+
+  const triggerId = body.trigger_id;
+  const userId = body.user_id;
+  const userName = body.user_name;
+
+  console.log("SLACK-CMD: trigger_id=" + (triggerId || "MISSING") + " user=" + (userName || "MISSING"));
+  console.log("SLACK-CMD: Parsed body keys=" + Object.keys(body).join(","));
+
+  if (!triggerId) {
+    console.error("SLACK-CMD: No trigger_id in body. Raw body:", JSON.stringify(body).substring(0, 500));
+    return res.status(200).json({
+      response_type: "ephemeral",
+      text: "Error: No trigger_id received. The form couldn't be opened. Please try again."
     });
   }
 
@@ -186,13 +233,13 @@ module.exports = async (req, res) => {
       view: buildContractModal()
     }, token);
 
-    console.log("SLACK-CMD: views.open result ok=" + result.ok);
+    console.log("SLACK-CMD: views.open result ok=" + result.ok + (result.error ? " error=" + result.error : ""));
 
     if (!result.ok) {
-      console.error("SLACK-CMD: views.open error:", result.error);
+      console.error("SLACK-CMD: views.open failed:", JSON.stringify(result).substring(0, 500));
       return res.status(200).json({
         response_type: "ephemeral",
-        text: "Error opening form: " + (result.error || "unknown error")
+        text: "Error opening form: " + (result.error || "unknown error") + ". Make sure the bot has been reinstalled after adding the slash command."
       });
     }
 
@@ -200,7 +247,7 @@ module.exports = async (req, res) => {
     return res.status(200).send("");
 
   } catch (err) {
-    console.error("SLACK-CMD: Error:", err.message);
+    console.error("SLACK-CMD: Exception:", err.message);
     return res.status(200).json({
       response_type: "ephemeral",
       text: "Error: " + err.message
