@@ -553,10 +553,10 @@ function buildSprint1(data) {
     bodyText(`AEO Labs LLC (\u201CService Provider\u201D) agrees to provide Answer Engine Optimization services to ${clientCompany} (\u201CClient\u201D) as described in the Statement of Work attached hereto. Services shall not commence until full payment has been received by Service Provider.`),
 
     sectionTitle("2", "Term"),
-    bodyText(`This Agreement shall commence on ${formattedDate} and shall continue for a period of sixty (60) calendar days (\u201CSprint Period\u201D), unless terminated earlier in accordance with Section 9.`),
+    bodyText(`This Agreement shall commence on ${formattedDate} and shall continue for a period of sixty (60) calendar days (\u201CSprint Period\u201D), unless terminated earlier in accordance with Section 10.`),
 
     sectionTitle("3", "Payment Terms"),
-    bodyText(`Client shall pay Service Provider the total fee of $${formattedAmount} USD upon execution of this Agreement. Payment is due prior to commencement of services. If payment is not received within seven (7) days of the Agreement date, Service Provider reserves the right to suspend all services until payment is received. All fees are non-refundable once work has commenced. Late payments shall accrue interest at a rate of 1.5% per month.`),
+    bodyText(`Client shall pay Service Provider the total fee of $${formattedAmount} USD upon execution of this Agreement. Payment is due prior to commencement of services. If payment is not received within seven (7) days of the Agreement date, Service Provider reserves the right to suspend all services until payment is received. All fees are non-refundable once work has commenced, except as provided under the Performance Guarantee in Section 9. Late payments shall accrue interest at a rate of 1.5% per month.`),
 
     sectionTitle("4", "Deliverable Acceptance"),
     bodyText("Upon delivery of any work product, Client shall have four (4) business days to review and provide written objection. If no written objection is received within this period, deliverables shall be deemed accepted. This acceptance timeline is critical to maintaining the Sprint schedule."),
@@ -573,19 +573,24 @@ function buildSprint1(data) {
     sectionTitle("8", "Limitation of Liability"),
     bodyText("In no event shall either party be liable to the other for any indirect, incidental, special, consequential, or punitive damages, regardless of the cause of action or the theory of liability. Service Provider\u2019s total aggregate liability under this Agreement shall not exceed the total fees paid by Client under this Agreement."),
 
-    sectionTitle("9", "Termination"),
-    bodyText("Either party may terminate this Agreement with thirty (30) days written notice. In the event of termination, Client shall pay for all services rendered through the date of termination. All fees paid prior to termination are non-refundable once work has commenced. Service Provider may terminate this Agreement immediately if Client fails to make payment within seven (7) days of the due date."),
+    sectionTitle("9", "Performance Guarantee"),
+    bodyText(`AEO Labs guarantees that the Client\u2019s brand will achieve a minimum of three (3) new verified AI prompt appearances within thirty (30) calendar days following completion of all Sprint deliverables (\u201CGuarantee Period\u201D). A \u201Cverified AI prompt appearance\u201D is defined as the Client\u2019s brand being directly referenced in an AI-generated response to a relevant industry query on a tracked LLM platform, as documented through AEO Labs\u2019 proprietary tracking dashboard, which shall be made accessible to the Client for the duration of the engagement.`),
+    bodyText(`In the event that fewer than three (3) verified appearances are recorded during the Guarantee Period, the Client shall be entitled to a full refund of the Sprint fee, provided that: (i) the Client has not made material modifications to their website architecture, content strategy, or domain configuration during the Guarantee Period without prior written approval from AEO Labs; (ii) the Client\u2019s brand and/or domain has not been subject to penalties, deindexing, or sanctions by any search engine, AI platform, or content discovery system during the Guarantee Period; and (iii) no algorithm update, model retraining, platform policy change, data refresh, or systemic modification to any AI system \u2014 including but not limited to OpenAI (ChatGPT), Anthropic (Claude), Google (Gemini, AI Overviews, SGE), Perplexity, Microsoft (Copilot, Bing Chat), Meta AI, or any successor or emerging AI platform \u2014 has occurred during the Guarantee Period that materially impacts AI-generated response behavior or prompt appearance rates across AEO Labs\u2019 client portfolio.`),
+    bodyText("The Guarantee Period shall not commence until AEO Labs has confirmed in writing that all deliverables have been completed and all Client-side implementations are verified as live."),
 
-    sectionTitle("10", "Indemnification"),
+    sectionTitle("10", "Termination"),
+    bodyText("Either party may terminate this Agreement with thirty (30) days written notice. In the event of termination, Client shall pay for all services rendered through the date of termination. All fees paid prior to termination are non-refundable once work has commenced, except as provided under the Performance Guarantee in Section 9. Service Provider may terminate this Agreement immediately if Client fails to make payment within seven (7) days of the due date."),
+
+    sectionTitle("11", "Indemnification"),
     bodyText("Each party shall indemnify and hold harmless the other party from any third-party claims, damages, or expenses arising from the indemnifying party\u2019s breach of this Agreement or negligent acts."),
 
-    sectionTitle("11", "Force Majeure"),
+    sectionTitle("12", "Force Majeure"),
     bodyText("Neither party shall be liable for any failure or delay in performance under this Agreement due to circumstances beyond its reasonable control, including but not limited to acts of God, natural disasters, pandemic, government actions, war, terrorism, labor disputes, power failures, internet disruptions, or third-party service outages. The affected party shall provide prompt notice and use reasonable efforts to mitigate the impact."),
 
-    sectionTitle("12", "Governing Law & Dispute Resolution"),
+    sectionTitle("13", "Governing Law & Dispute Resolution"),
     bodyText("This Agreement shall be governed by and construed in accordance with the laws of the State of Wyoming. Any disputes arising under this Agreement shall be resolved through binding arbitration in the State of Wyoming, in accordance with the rules of the American Arbitration Association. The prevailing party shall be entitled to recover reasonable attorneys\u2019 fees and costs."),
 
-    sectionTitle("13", "General Provisions"),
+    sectionTitle("14", "General Provisions"),
     bodyText("This Agreement constitutes the entire agreement between the parties and supersedes all prior negotiations, representations, or agreements relating to the subject matter hereof. This Agreement may not be amended except by written instrument signed by both parties. If any provision of this Agreement is held to be unenforceable, the remaining provisions shall remain in full force and effect."),
 
     new Paragraph({ children: [new PageBreak()] }),
@@ -603,7 +608,7 @@ function buildSprint1(data) {
     heading("Investment"),
     boldBodyText("Total Sprint Fee:  ", `$${formattedAmount} USD`),
     boldBodyText("Payment Terms:  ", "Due upon execution, prior to commencement of services."),
-    bodyText("All fees are non-refundable once work has commenced."),
+    bodyText("All fees are non-refundable once work has commenced, except as provided under the Performance Guarantee in Section 9 of the Master Services Agreement."),
 
     ...jeffSignaturePage(formattedDate),
     ...clientSignaturePage(clientName, clientTitle, clientCompany),
